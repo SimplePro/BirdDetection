@@ -189,7 +189,8 @@ class BackgroundCompositor:
         augmentation_bird_images = []
         augmentation_bboxes_list = []
 
-        for _ in range(dataset_n):
+        print("background composition")
+        for _ in tqdm(range(dataset_n)):
             random_background = self.background_images[randint(0, len(self.background_images))-1]
             [number_of_birds] = choices(birds_n, weights=birds_n_p, k=1)
 
@@ -289,7 +290,7 @@ class Transforms:
 
 
         self.albumentation_transform = A.Compose([
-                A.CropAndPad(percent=(-0.2,0.3), p=1),
+                A.CropAndPad(percent=(-0.2,0.2), p=1),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
@@ -300,18 +301,45 @@ class Transforms:
         self.bird_images = bird_images
         self.bboxes_list = bboxes_list
 
+
+    def yolo2coco(self, bbox, img_size=256):
+        x, y, w, h = bbox
+
+        return [
+            int(min(1, max(0, (x - w/2))) * img_size),
+            int(min(1, max(0, (y - h/2))) * img_size),
+            int(min(1, max(0, (x + w/2))) * img_size),
+            int(min(1, max(0, (y + h/2))) * img_size),
+        ]
+
     
-    def transform_function(self, img, bboxes):
+    def coco2yolo(self, bbox, img_size=256):
+        xmin, ymin, xmax, ymax = bbox
+        xmin, ymin, xmax, ymax = xmin / img_size, ymin / img_size, xmax / img_size, ymax / img_size
+
+        return [
+            (xmin+xmax)/2, (ymin + ymax)/2, (xmax-xmin), (ymax-ymin)
+        ]
+    
+    
+    def transform_function(
+        self,
+        img,
+        bboxes # yolo
+    ):
 
         transform_result = self.albumentation_transform(
             image=img.permute(1, 2, 0).numpy(),
-            bboxes=[bbox[1:] for bbox in bboxes],
+            bboxes=[self.coco2yolo(self.yolo2coco(bbox[1:])) for bbox in bboxes],
             class_labels=[bbox[0] for bbox in bboxes]
         )
 
         return (
             torch.from_numpy(transform_result["image"]).permute(2, 0, 1),
-            [[bboxes[i][0]] + list(bbox) for i, bbox in enumerate(transform_result["bboxes"])]
+            [
+                [bboxes[i][0]] + list(bbox) # yolo
+                for i, bbox in enumerate(transform_result["bboxes"])
+            ]
         )
 
 
@@ -323,14 +351,13 @@ class Transforms:
         augmentation_bird_images = []
         augmentation_bboxes_list = []
 
-        for bird_img, bboxes in zip(self.bird_images, self.bboxes_list):
+        print("simple data sugmentation")
+        for bird_img, bboxes in tqdm(zip(self.bird_images, self.bboxes_list)):
             for _ in range(augmentation_n):
-                try:
-                    bird_img, bboxes = self.transform_function(img=bird_img, bboxes=bboxes)
+                augmentation_bird_img, augmentation_bboxes = self.transform_function(img=bird_img, bboxes=bboxes)
 
-                    augmentation_bird_images.append(bird_img)
-                    augmentation_bboxes_list.append(bboxes)
-                except: pass
+                augmentation_bird_images.append(augmentation_bird_img)
+                augmentation_bboxes_list.append(augmentation_bboxes)
 
         return augmentation_bird_images, augmentation_bboxes_list
 
@@ -375,7 +402,7 @@ class AugmentationClass:
 
 if __name__ == '__main__':
 
-    is_train_valid_test = 0 # 0: train, 1: valid, 2: test
+    is_train_valid_test = 2 # 0: train, 1: valid, 2: test
 
     dataset_mode = {
         0: "train",
@@ -384,18 +411,21 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 50000,
+        0: 25000,
         1: 5000,
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 15,
-        1: 5,
+        0: 12,
+        1: 3,
         2: 1
     }[is_train_valid_test]
 
     root_dir = "/home/kdhsimplepro/kdhsimplepro/AI/BirdDetection/"
+
+    images_dir = os.path.join(root_dir, "dataset", dataset_mode, "images")
+    labels_dir = os.path.join(root_dir, "dataset", dataset_mode, "labels")
 
     with open(os.path.join(root_dir, "datasamples", "split_indexes.pickle"), "rb") as f:
         data_split_indexes = pickle.load(f)
@@ -404,7 +434,8 @@ if __name__ == '__main__':
     mask_images = []
     bboxes_list = []
 
-    for i in range(len(data_split_indexes)):
+    print("add dataset in list variable")
+    for i in tqdm(range(len(data_split_indexes))):
         if data_split_indexes[i] == is_train_valid_test:
             bird_path = os.path.join(root_dir, "datasamples", "images", f"{i}.jpg")
             mask_path = os.path.join(root_dir, "datasamples", "mask", f"{i}.jpg")
@@ -428,18 +459,28 @@ if __name__ == '__main__':
             mask_images.append(mask_image)
             bboxes_list.append(bboxes)
 
-    background_images = []
+    if is_train_valid_test in [0, 1]:
+        background_images = []
 
-    for path in glob(os.path.join(root_dir, "Landscape", "*.jpg")):
-        background_images.append(
-            transforms.ToTensor()(Image.open(path).convert("RGB").resize((256, 256)))
+        print("background images")
+        for path in tqdm(glob(os.path.join(root_dir, "Landscape", "*.jpg"))):
+            background_images.append(
+                transforms.ToTensor()(Image.open(path).convert("RGB").resize((256, 256)))
+            )
+
+        augmentation_class = AugmentationClass(bird_images, mask_images, bboxes_list, background_images)
+
+        augmentation_class.do_augmentation(
+            images_dir=images_dir,
+            labels_dir=labels_dir,
+            background_compositor_data_n=background_compositor_data_n,
+            augmentation_n=augmentation_n
         )
+    
+    elif is_train_valid_test == 2:
+        for i, (bird_image, bboxes) in enumerate(zip(bird_images, bboxes_list)):
+            img = transforms.ToPILImage()(bird_image)
+            img.save(os.path.join(images_dir, f"{i}.jpg"))
 
-    augmentation_class = AugmentationClass(bird_images, mask_images, bboxes_list, background_images)
-
-    augmentation_class.do_augmentation(
-        image_dir=os.path.join(root_dir, "dataset", dataset_mode, "images"),
-        labels_dir=os.path.join(root_dir, "dataset", dataset_mode, "labels"),
-        background_compositor_data_n=background_compositor_data_n,
-        augmentation_n=augmentation_n
-    )
+            with open(os.path.join(labels_dir, f"{i}.txt"), "w") as f:
+                f.write("\n".join([f"{int(c)} {x} {y} {w} {h}" for (c, x, y, w, h) in bboxes]) + "\n")
