@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 
 import albumentations as A
-from random import uniform, randint, choices
+from random import uniform, randint, choices, shuffle
 
 from tqdm import tqdm
 
@@ -45,8 +45,10 @@ class BackgroundCompositor:
         background_images,
         iof_threshold=0.4, # intersection over front_area
         iob_threshold=0.4, # intersection over back_area
-        min_size_of_bird=16,
-        max_size_of_bird=256,
+        # min_size_of_bird=16,
+        # max_size_of_bird=256,
+        min_scale_factor=0.125,
+        max_scale_factor=1.5
     ):
     
         self.img_H, self.img_W = 256, 256
@@ -59,8 +61,10 @@ class BackgroundCompositor:
         self.iof_threshold = iof_threshold
         self.iob_threshold = iob_threshold
 
-        self.min_size_of_bird = min_size_of_bird
-        self.max_size_of_bird = max_size_of_bird
+        # self.min_size_of_bird = min_size_of_bird
+        # self.max_size_of_bird = max_size_of_bird
+        self.min_scale_factor = min_scale_factor
+        self.max_scale_factor = max_scale_factor
 
         self.croped_bird_images = []
         self.croped_mask_images = []
@@ -69,13 +73,13 @@ class BackgroundCompositor:
         self.crop_bird_and_mask_images()
 
         self.albumentations_dict = {
-            "crop_and_pad": A.CropAndPad(percent=(-0.1,0.1), p=1),
-            "rotate": A.SafeRotate(p=0.5),
+            "crop_and_pad": A.CropAndPad(percent=(-0.2,0.4), p=1),
+            # "rotate": A.SafeRotate(p=0.5),
             "vertical_flip": A.VerticalFlip(p=0.3),
             "horizontal_flip": A.HorizontalFlip(p=0.3),
-            "random_brightness_contrast": A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.8),
-            "blur": A.AdvancedBlur(p=0.2),
-            "fog": A.RandomFog(p=0.2),
+            "random_brightness_contrast": A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
+            "blur": A.AdvancedBlur(p=0.3),
+            "fog": A.RandomFog(p=0.3),
         }
 
     
@@ -105,7 +109,7 @@ class BackgroundCompositor:
         bird_img,
         mask_img,
         bboxes, # [[class, x, y, w, h] ... ]
-        compose_list=["rotate", "vertical_flip", "horizontal_flip", "random_brightness_contrast", "blur", "fog"]
+        compose_list=["vertical_flip", "horizontal_flip", "random_brightness_contrast", "blur", "fog"]
     ):
 
         is_bird = bird_img != None
@@ -146,23 +150,18 @@ class BackgroundCompositor:
         bird_img,
         mask_img,
     ):
-        bird_H, bird_W = bird_img.size(1), bird_img.size(2)
-        
-        min_scale_factor = self.min_size_of_bird / min(bird_H, bird_W)
-        max_scale_factor = self.max_size_of_bird / max(bird_H, bird_W)
 
-        random_scale_factor = uniform(min_scale_factor, max_scale_factor)
+        random_scale_factor = uniform(self.min_scale_factor, self.max_scale_factor)
         resized_bird_img = F.interpolate(bird_img.unsqueeze(0), scale_factor=random_scale_factor).squeeze(0)
         resized_mask_img = F.interpolate(mask_img.unsqueeze(0), scale_factor=random_scale_factor).squeeze(0)
 
-        return resized_bird_img, resized_mask_img
+        return resized_bird_img[:, :256, :256], resized_mask_img[:, :256, :256]
         # return bird_img, mask_img
 
 
     def get_random_position(
         self,
         bird_img,
-        mask_img,
         background_img
     ):
         bird_H, bird_W = bird_img.size(1), bird_img.size(2)
@@ -212,7 +211,7 @@ class BackgroundCompositor:
 
                 bird_image, mask_image = self.random_resize(bird_image, mask_image)
 
-                random_position = self.get_random_position(bird_image, mask_image, pasted_img)
+                random_position = self.get_random_position(bird_image, pasted_img)
 
                 its_ok = True
 
@@ -265,13 +264,13 @@ class BackgroundCompositor:
                     bboxes.append([class_, *random_position])
                             
                             
-            pasted_img, bboxes = self.do_transform_img(
-                bird_img=pasted_img,
-                mask_img=None,
-                bboxes=bboxes,
-                compose_list=["crop_and_pad", "horizontal_flip", "random_brightness_contrast", "blur"])
+            # pasted_img, bboxes = self.do_transform_img(
+            #     bird_img=pasted_img,
+            #     mask_img=None,
+            #     bboxes=bboxes,
+            #     compose_list=["crop_and_pad", "horizontal_flip", "random_brightness_contrast", "blur"])
 
-            augmentation_bird_images.append(pasted_img)
+            augmentation_bird_images.append(pasted_img.type(torch.float16))
             augmentation_bboxes_list.append(bboxes)
                 
 
@@ -290,12 +289,13 @@ class Transforms:
 
 
         self.albumentation_transform = A.Compose([
-                A.CropAndPad(percent=(-0.2,0.2), p=1),
+                # A.SafeRotate(p=0.5),
+                A.CropAndPad(percent=(-0.2,0.4), p=1),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
                 A.AdvancedBlur(p=0.3),
-                A.RandomFog(p=0.3)
+                A.RandomFog(p=0.3),
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
         self.bird_images = bird_images
@@ -356,7 +356,7 @@ class Transforms:
             for _ in range(augmentation_n):
                 augmentation_bird_img, augmentation_bboxes = self.transform_function(img=bird_img, bboxes=bboxes)
 
-                augmentation_bird_images.append(augmentation_bird_img)
+                augmentation_bird_images.append(augmentation_bird_img.type(torch.float16))
                 augmentation_bboxes_list.append(augmentation_bboxes)
 
         return augmentation_bird_images, augmentation_bboxes_list
@@ -374,7 +374,12 @@ class AugmentationClass:
         self.bird_images = bird_images
         self.mask_images = mask_images
         self.bboxes_list = bboxes_list
-        self.background_compositor = BackgroundCompositor(bird_images=bird_images, mask_images=mask_images, bboxes_list=bboxes_list, background_images=background_images)
+        self.background_compositor = BackgroundCompositor(
+            bird_images=bird_images,
+            mask_images=mask_images,
+            bboxes_list=bboxes_list,
+            background_images=background_images
+        )
         self.custom_transform = Transforms(bird_images=bird_images, bboxes_list=bboxes_list)
 
     
@@ -386,7 +391,7 @@ class AugmentationClass:
         augmentation_n=10
     ):
 
-        background_composed_bird_images, background_composed_bboxes_list = self.background_compositor.do_augmentation(dataset_n=background_compositor_data_n)
+        background_composed_bird_images, background_composed_bboxes_list = self.background_compositor.do_augmentation(dataset_n=background_compositor_data_n, birds_n=list(range(8)), birds_n_p=[0.125] * 8)
         augmentation_bird_images, augmentation_bboxes_list = self.custom_transform.do_augmentation(augmentation_n=augmentation_n)
 
         for i, (bird_image, bboxes) in enumerate(
@@ -402,7 +407,7 @@ class AugmentationClass:
 
 if __name__ == '__main__':
 
-    is_train_valid_test = 2 # 0: train, 1: valid, 2: test
+    is_train_valid_test = 0 # 0: train, 1: valid, 2: test
 
     dataset_mode = {
         0: "train",
@@ -411,14 +416,14 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 25000,
-        1: 5000,
+        0: 0,
+        1: 0,
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 12,
-        1: 3,
+        0: 30,
+        1: 15,
         2: 1
     }[is_train_valid_test]
 
@@ -476,7 +481,7 @@ if __name__ == '__main__':
             background_compositor_data_n=background_compositor_data_n,
             augmentation_n=augmentation_n
         )
-    
+
     elif is_train_valid_test == 2:
         for i, (bird_image, bboxes) in enumerate(zip(bird_images, bboxes_list)):
             img = transforms.ToPILImage()(bird_image)
@@ -484,3 +489,11 @@ if __name__ == '__main__':
 
             with open(os.path.join(labels_dir, f"{i}.txt"), "w") as f:
                 f.write("\n".join([f"{int(c)} {x} {y} {w} {h}" for (c, x, y, w, h) in bboxes]) + "\n")
+
+
+    image_paths = glob(os.path.join(root_dir, "dataset", dataset_mode, "images", "*.jpg"))
+
+    shuffle(image_paths)
+
+    with open(os.path.join(root_dir, "dataset", dataset_mode, f"{dataset_mode}.txt"), "w") as f:
+        f.write("\n".join(image_paths) + "\n")
