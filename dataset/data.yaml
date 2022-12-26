@@ -1,0 +1,11 @@
+names:
+- Crow
+- Cuckoo
+- Sparrow
+- Swallow
+- Woodpecker
+nc: 5
+
+train: /home/kdhsimplepro/kdhsimplepro/AI/BirdDetection/dataset/train/train.txt
+val: /home/kdhsimplepro/kdhsimplepro/AI/BirdDetection/dataset/valid/valid.txt
+test: /home/kdhsimplepro/kdhsimplepro/AI/BirdDetection/dataset/test/test.txt
