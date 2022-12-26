@@ -47,8 +47,8 @@ class BackgroundCompositor:
         iob_threshold=0.4, # intersection over back_area
         # min_size_of_bird=16,
         # max_size_of_bird=256,
-        min_scale_factor=0.125,
-        max_scale_factor=1.5
+        min_scale_factor=0.175,
+        max_scale_factor=1.3
     ):
     
         self.img_H, self.img_W = 256, 256
@@ -73,13 +73,11 @@ class BackgroundCompositor:
         self.crop_bird_and_mask_images()
 
         self.albumentations_dict = {
-            "crop_and_pad": A.CropAndPad(percent=(-0.2,0.4), p=1),
-            # "rotate": A.SafeRotate(p=0.5),
-            "vertical_flip": A.VerticalFlip(p=0.3),
-            "horizontal_flip": A.HorizontalFlip(p=0.3),
+            "crop_and_pad": A.CropAndPad(percent=(-0.2,0.2), p=1),
+            "vertical_flip": A.VerticalFlip(p=0.5),
+            "horizontal_flip": A.HorizontalFlip(p=0.5),
             "random_brightness_contrast": A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
-            "blur": A.AdvancedBlur(p=0.3),
-            "fog": A.RandomFog(p=0.3),
+            "blur": A.AdvancedBlur(p=0.3)
         }
 
     
@@ -152,6 +150,10 @@ class BackgroundCompositor:
     ):
 
         random_scale_factor = uniform(self.min_scale_factor, self.max_scale_factor)
+
+        if (max(bird_img.size(0), bird_img.size(1)) * random_scale_factor) > 256:
+            random_scale_factor = 256 / max(bird_img.size(0), bird_img.size(1))
+
         resized_bird_img = F.interpolate(bird_img.unsqueeze(0), scale_factor=random_scale_factor).squeeze(0)
         resized_mask_img = F.interpolate(mask_img.unsqueeze(0), scale_factor=random_scale_factor).squeeze(0)
 
@@ -207,7 +209,7 @@ class BackgroundCompositor:
                 
                 bird_image, mask_image = self.do_transform_img(
                     bird_image, mask_image, bboxes=None,
-                    compose_list=["vertical_flip", "horizontal_flip", "random_brightness_contrast"])
+                    compose_list=["vertical_flip", "horizontal_flip"])
 
                 bird_image, mask_image = self.random_resize(bird_image, mask_image)
 
@@ -232,8 +234,7 @@ class BackgroundCompositor:
                     i_xmax, i_ymax = min(xmax, new_xmax), min(ymax, new_ymax)
                     # print(f"i_xmin: {i_xmin}, i_ymin: {i_ymin}, i_xmax: {i_xmax}, i_ymax: {i_ymax}")
                     intersection_area = (i_xmax - i_xmin) * (i_ymax - i_ymin)
-                    if intersection_area < 0:
-                        intersection_area = 0
+                    if intersection_area < 0: intersection_area = 0
                     # print(f"intersection_area: {intersection_area}, front_area: {front_area}")
 
                     iof = intersection_area / front_area
@@ -264,11 +265,11 @@ class BackgroundCompositor:
                     bboxes.append([class_, *random_position])
                             
                             
-            # pasted_img, bboxes = self.do_transform_img(
-            #     bird_img=pasted_img,
-            #     mask_img=None,
-            #     bboxes=bboxes,
-            #     compose_list=["crop_and_pad", "horizontal_flip", "random_brightness_contrast", "blur"])
+            pasted_img, bboxes = self.do_transform_img(
+                bird_img=pasted_img,
+                mask_img=None,
+                bboxes=bboxes,
+                compose_list=["crop_and_pad", "random_brightness_contrast", "blur"])
 
             augmentation_bird_images.append(pasted_img.type(torch.float16))
             augmentation_bboxes_list.append(bboxes)
@@ -289,13 +290,11 @@ class Transforms:
 
 
         self.albumentation_transform = A.Compose([
-                # A.SafeRotate(p=0.5),
-                A.CropAndPad(percent=(-0.2,0.4), p=1),
+                A.CropAndPad(percent=(-0.2,0.2), p=1),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
                 A.AdvancedBlur(p=0.3),
-                A.RandomFog(p=0.3),
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
         self.bird_images = bird_images
@@ -407,7 +406,7 @@ class AugmentationClass:
 
 if __name__ == '__main__':
 
-    is_train_valid_test = 0 # 0: train, 1: valid, 2: test
+    is_train_valid_test = 2 # 0: train, 1: valid, 2: test
 
     dataset_mode = {
         0: "train",
@@ -416,14 +415,14 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 0,
+        0: 40000,
         1: 0,
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 30,
-        1: 15,
+        0: 15,
+        1: 10,
         2: 1
     }[is_train_valid_test]
 
@@ -442,27 +441,32 @@ if __name__ == '__main__':
     print("add dataset in list variable")
     for i in tqdm(range(len(data_split_indexes))):
         if data_split_indexes[i] == is_train_valid_test:
-            bird_path = os.path.join(root_dir, "datasamples", "images", f"{i}.jpg")
-            mask_path = os.path.join(root_dir, "datasamples", "mask", f"{i}.jpg")
-            bboxes_path = os.path.join(root_dir, "datasamples", "bboxes", f"{i}.txt")
 
-            bird_image = transforms.ToTensor()(Image.open(bird_path).convert("RGB"))
-            mask_image = transforms.ToTensor()(Image.open(mask_path).convert("L"))
+            try:
+                bird_path = os.path.join(root_dir, "datasamples", "images", f"{i}.jpg")
+                mask_path = os.path.join(root_dir, "datasamples", "mask", f"{i}.jpg")
+                bboxes_path = os.path.join(root_dir, "datasamples", "bboxes", f"{i}.txt")
 
-            bboxes = []
-            
-            with open(bboxes_path, "r") as f:
-                lines = f.readlines()
+                bird_image = transforms.ToTensor()(Image.open(bird_path).convert("RGB"))
+                mask_image = transforms.ToTensor()(Image.open(mask_path).convert("L"))
 
-                for line in lines:
-                    c, x, y, w, h = map(float, line.split())
-                    c = int(c)
+                bboxes = []
+                
+                with open(bboxes_path, "r") as f:
+                    lines = f.readlines()
 
-                    bboxes.append([c, x, y, w, h])
-            
-            bird_images.append(bird_image)
-            mask_images.append(mask_image)
-            bboxes_list.append(bboxes)
+                    for line in lines:
+                        c, x, y, w, h = map(float, line.split())
+                        c = int(c)
+
+                        bboxes.append([c, x, y, w, h])
+                
+                bird_images.append(bird_image)
+                mask_images.append(mask_image)
+                bboxes_list.append(bboxes)
+
+            except:
+                pass
 
     if is_train_valid_test in [0, 1]:
         background_images = []
@@ -482,7 +486,7 @@ if __name__ == '__main__':
             augmentation_n=augmentation_n
         )
 
-    elif is_train_valid_test == 2:
+    elif is_train_valid_test in [2]:
         for i, (bird_image, bboxes) in enumerate(zip(bird_images, bboxes_list)):
             img = transforms.ToPILImage()(bird_image)
             img.save(os.path.join(images_dir, f"{i}.jpg"))
