@@ -48,6 +48,7 @@ class BackgroundCompositor:
         iob_threshold=0.5, # intersection over back_area
         min_size_of_bird=12,
         max_size_of_bird=256,
+        # scale_factor_mean_std=(1, 0.3)
         size_statistics=[(36, 9), (72, 18), (180, 35)],
         size_weights=[0.1, 0.15, 0.75]
     ):
@@ -66,6 +67,7 @@ class BackgroundCompositor:
         self.max_size_of_bird = max_size_of_bird
         self.size_statistics = size_statistics
         self.size_weights = size_weights
+        # self.scale_factor_mean_std = scale_factor_mean_std
 
         self.croped_bird_images = []
         self.croped_mask_images = []
@@ -78,8 +80,8 @@ class BackgroundCompositor:
             "vertical_flip": A.VerticalFlip(p=0.4),
             "horizontal_flip": A.HorizontalFlip(p=0.5),
             "random_brightness_contrast": A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
-            "blur": A.AdvancedBlur(p=0.5),
-            "fog": A.RandomFog(p=0.5)
+            "blur": A.AdvancedBlur(p=0.3),
+            "fog": A.RandomFog(p=0.3)
         }
 
     
@@ -294,8 +296,8 @@ class Transforms:
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.4),
                 A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
-                A.AdvancedBlur(p=0.5),
-                A.RandomFog(p=0.5)
+                A.AdvancedBlur(p=0.3),
+                A.RandomFog(p=0.3)
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
         self.bird_images = bird_images
@@ -422,14 +424,14 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 20000,
-        1: 2000,
+        0: 0,
+        1: 0,
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 15,
-        1: 3,
+        0: 1,
+        1: 1,
         2: 1
     }[is_train_valid_test]
 
