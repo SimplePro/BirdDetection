@@ -48,9 +48,9 @@ class BackgroundCompositor:
         iob_threshold=0.5, # intersection over back_area
         min_size_of_bird=12,
         max_size_of_bird=256,
-        # scale_factor_mean_std=(1, 0.3)
-        size_statistics=[(36, 9), (72, 18), (180, 35)],
-        size_weights=[0.1, 0.15, 0.75]
+        scale_factor_mean_std=(1, 0.3)
+        # size_statistics=[(36, 9), (72, 18), (180, 35)],
+        # size_weights=[0.1, 0.15, 0.75]
     ):
     
         self.img_H, self.img_W = 256, 256
@@ -65,9 +65,9 @@ class BackgroundCompositor:
 
         self.min_size_of_bird = min_size_of_bird
         self.max_size_of_bird = max_size_of_bird
-        self.size_statistics = size_statistics
-        self.size_weights = size_weights
-        # self.scale_factor_mean_std = scale_factor_mean_std
+        # self.size_statistics = size_statistics
+        # self.size_weights = size_weights
+        self.scale_factor_mean_std = scale_factor_mean_std
 
         self.croped_bird_images = []
         self.croped_mask_images = []
@@ -154,13 +154,16 @@ class BackgroundCompositor:
     ):
         bird_H, bird_W = bird_img.size(1), bird_img.size(2)
 
-        [(mean, std)] = choices(self.size_statistics, weights=self.size_weights, k=1)
-        random_size = np.random.normal(size=1).item() * std + mean
-        random_size = min(self.max_size_of_bird, max(self.min_size_of_bird, random_size))
-        random_scale_factor = random_size / max(bird_H, bird_W)
+        # [(mean, std)] = choices(self.size_statistics, weights=self.size_weights, k=1)
+        mean, std = self.scale_factor_mean_std
+        random_scale_factor = np.random.normal(size=1).item() * std + mean
+        min_scale_factor = self.min_size_of_bird / min(bird_H, bird_W)
+        max_scale_factor = self.max_size_of_bird / max(bird_H, bird_W)
+        random_scale_factor = min(max_scale_factor, max(min_scale_factor, random_scale_factor))
+        # random_scale_factor = random_size / max(bird_H, bird_W)
         
-        resized_bird_img = F.interpolate(bird_img.unsqueeze(0), scale_factor=random_scale_factor).squeeze(0)
-        resized_mask_img = F.interpolate(mask_img.unsqueeze(0), scale_factor=random_scale_factor).squeeze(0)
+        resized_bird_img = F.interpolate(bird_img.unsqueeze(0), scale_factor=random_scale_factor, mode="bilinear").squeeze(0)
+        resized_mask_img = F.interpolate(mask_img.unsqueeze(0), scale_factor=random_scale_factor, mode="bilinear").squeeze(0)
 
         return resized_bird_img, resized_mask_img
         # return bird_img, mask_img
@@ -398,7 +401,7 @@ class AugmentationClass:
     ):
 
         background_composed_bird_images, background_composed_bboxes_list = self.background_compositor.do_augmentation(
-            dataset_n=background_compositor_data_n, birds_n=[0, 1, 2, 3, 4], birds_n_p=[0.2, 0.2, 0.2, 0.2, 0.2]
+            dataset_n=background_compositor_data_n, birds_n=list(range(8)), birds_n_p=[1/8] * 8
         )
         augmentation_bird_images, augmentation_bboxes_list = self.custom_transform.do_augmentation(augmentation_n=augmentation_n)
 
@@ -424,14 +427,14 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 0,
-        1: 0,
+        0: 10000,
+        1: 1000,
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 1,
-        1: 1,
+        0: 10,
+        1: 5,
         2: 1
     }[is_train_valid_test]
 
