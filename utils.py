@@ -44,8 +44,8 @@ class BackgroundCompositor:
         mask_images,
         bboxes_list,
         background_images,
-        iof_threshold=0.4, # intersection over front_area
-        iob_threshold=0.4, # intersection over back_area
+        iof_threshold=0.5, # intersection over front_area
+        iob_threshold=0.5, # intersection over back_area
         min_size_of_bird=12,
         max_size_of_bird=256,
         size_statistics=[(36, 9), (72, 18), (180, 35)],
@@ -220,35 +220,32 @@ class BackgroundCompositor:
 
                 its_ok = True
 
+
+                new_x, new_y, new_w, new_h = random_position
+                new_x, new_y, new_w, new_h = int(new_x * 256), int(new_y * 256), int(new_w * 256), int(new_h * 256)
+                new_xmin, new_ymin = int(new_x - new_w/2), int(new_y - new_h/2)
+                new_xmax, new_ymax = new_xmin + new_w, new_ymin + new_h
+                iof = (torch.sum(id_img[:, new_ymin:new_ymax, new_xmin:new_xmax] != -1) / (new_w * new_h)).item()
+
+                if iof > self.iof_threshold:
+                    its_ok = False
+
                 for imgid, (_, x, y, w, h) in enumerate(bboxes):
                     new_x, new_y, new_w, new_h = random_position
                     new_x, new_y, new_w, new_h = int(new_x * 256), int(new_y * 256), int(new_w * 256), int(new_h * 256)
                     new_xmin, new_ymin = int(new_x - new_w/2), int(new_y - new_h/2)
                     new_xmax, new_ymax = new_xmin + new_w, new_ymin + new_h
-                    # print(f"new_xmin: {new_xmin}, new_ymin: {new_ymin}, new_xmax: {new_xmax}, new_ymax: {new_ymax}")
                     
                     x, y, w, h = int(x * 256), int(y * 256), int(w * 256), int(h * 256)
                     xmin, ymin, xmax, ymax = int(x - w/2), int(y - h/2), int(x + w/2), int(y + h/2)
-                    # print(f"xmin: {xmin}, ymin: {ymin}, xmax: {xmax}, ymax: {ymax}")
-
-                    front_area = new_w * new_h # 새로 붙일 이미지의 넓이
 
                     i_xmin, i_ymin = max(xmin, new_xmin), max(ymin, new_ymin)
                     i_xmax, i_ymax = min(xmax, new_xmax), min(ymax, new_ymax)
-                    # print(f"i_xmin: {i_xmin}, i_ymin: {i_ymin}, i_xmax: {i_xmax}, i_ymax: {i_ymax}")
                     intersection_area = (i_xmax - i_xmin) * (i_ymax - i_ymin)
                     if intersection_area < 0: intersection_area = 0
-                    # print(f"intersection_area: {intersection_area}, front_area: {front_area}")
-
-                    iof = intersection_area / front_area
-
-                    if iof > self.iof_threshold:
-                        its_ok = False
-                        break
                     
                     back_area = w * h
                     intersection_area = torch.sum(id_img[:, ymin:ymax, xmin:xmax] != imgid) + intersection_area
-                    # print(f"intersection_area: {intersection_area}, back_area: {back_area}")
                     iob = (intersection_area / back_area).item()
 
                     if iob > self.iob_threshold:
@@ -425,14 +422,14 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 30000,
-        1: 3000,
+        0: 20000,
+        1: 2000,
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 25,
-        1: 15,
+        0: 15,
+        1: 3,
         2: 1
     }[is_train_valid_test]
 
