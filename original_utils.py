@@ -5,6 +5,8 @@ from torchvision import transforms
 import albumentations as A
 from random import uniform, randint, choices, shuffle
 
+import numpy as np
+
 from tqdm import tqdm
 
 from PIL import Image
@@ -64,8 +66,10 @@ class BackgroundCompositor:
         bboxes_list,
         background_images,
         ioa_threshold: float,
-        min_scale_factor=0.25,
-        max_scale_factor=1.75
+        min_size_of_bird=12,
+        max_size_of_bird=256,
+        scale_factor_statistics=[(0.3, 0.1), (0.7, 0.2), (1, 0.3)],
+        scale_factor_weights=[0.2, 0.2, 0.6]
     ):
     
         self.img_H, self.img_W = 256, 256
@@ -77,8 +81,10 @@ class BackgroundCompositor:
 
         self.ioa_threshold = ioa_threshold
 
-        self.min_scale_factor = min_scale_factor
-        self.max_scale_factor = max_scale_factor
+        self.min_size_of_bird = min_size_of_bird
+        self.max_size_of_bird = max_size_of_bird
+        self.scale_factor_statistics = scale_factor_statistics
+        self.scale_factor_weights = scale_factor_weights
 
         self.croped_bird_images = []
         self.birds_p = []
@@ -167,16 +173,17 @@ class BackgroundCompositor:
     ):
         bird_H, bird_W = bird_img.size(1), bird_img.size(2)
 
-        min_sc = self.min_scale_factor
-        max_sc = self.max_scale_factor
+        [(mean, std)] = choices(self.scale_factor_statistics, weights=self.scale_factor_weights, k=1)
 
-        if max(bird_H, bird_W) * max_sc > 256:
-            max_sc = 256 / max(bird_H, bird_W)
+        random_scale_factor = np.random.normal(size=1).item() * std + mean
 
-        scale_factor = uniform(min_sc, max_sc)
+        min_scale_factor = self.min_size_of_bird / min(bird_H, bird_W)
+        max_scale_factor = self.max_size_of_bird / max(bird_H, bird_W)
+
+        random_scale_factor = min(max_scale_factor, max(min_scale_factor, random_scale_factor))
         
-        resized_bird_img = F.interpolate(bird_img.unsqueeze(0), scale_factor=scale_factor, mode="bilinear").squeeze(0)
-        resized_mask_img = F.interpolate(mask_img.unsqueeze(0), scale_factor=scale_factor, mode="bilinear").squeeze(0)
+        resized_bird_img = F.interpolate(bird_img.unsqueeze(0), scale_factor=random_scale_factor, mode="bilinear").squeeze(0)
+        resized_mask_img = F.interpolate(mask_img.unsqueeze(0), scale_factor=random_scale_factor, mode="bilinear").squeeze(0)
 
         return resized_bird_img, resized_mask_img
 
