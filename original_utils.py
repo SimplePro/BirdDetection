@@ -87,13 +87,12 @@ class BackgroundCompositor:
 
         self.crop_bird_and_mask_images()
 
-        self.albumentations_dict = {
-            "vertical_flip": A.VerticalFlip(p=0.5),
-            "horizontal_flip": A.HorizontalFlip(p=0.5),
-            "random_brightness_contrast": A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
-            "blur": A.AdvancedBlur(p=0.3),
-            "fog": A.RandomFog(p=0.3)
-        }
+        self.transformation = A.Compose([
+                A.VerticalFlip(p=0.5),
+                A.HorizontalFlip(p=0.5),
+                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
+                A.AdvancedBlur(p=0.3)
+            ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
     
     def crop_bird_and_mask_images(
@@ -131,7 +130,6 @@ class BackgroundCompositor:
         bird_img,
         mask_img,
         bboxes, # [[class, x, y, w, h] ... ]
-        compose_list=["vertical_flip", "horizontal_flip", "random_brightness_contrast", "fog"]
     ):
 
         is_bird = bird_img != None
@@ -141,12 +139,7 @@ class BackgroundCompositor:
         mask_img = torch.zeros((1, bird_img.size(1), bird_img.size(2))) if not is_mask else mask_img
         bboxes = [[0, 0.5, 0.5, 0.5, 0.5]] if not is_bbox else bboxes
 
-        transformation = A.Compose([
-                self.albumentations_dict[key]
-                for key in compose_list
-            ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
-
-        transform_result = transformation(
+        transform_result = self.transformation(
             image=bird_img.permute(1, 2, 0).numpy(),
             mask=mask_img.permute(1, 2, 0).numpy(),
             bboxes=[bbox[1:] for bbox in bboxes],
@@ -235,7 +228,7 @@ class BackgroundCompositor:
                 
                 bird_image, mask_image = self.do_transform_img(
                     bird_image, mask_image, bboxes=None,
-                    compose_list=["vertical_flip", "horizontal_flip", "random_brightness_contrast", "blur", "fog"])
+                )
 
                 bird_image, mask_image = self.random_resize(bird_image, mask_image)
 
@@ -299,7 +292,7 @@ class Transforms:
 
         transform_result = self.albumentation_transform(
             image=img.permute(1, 2, 0).numpy(),
-            bboxes=[self.coco2yolo(self.yolo2coco(bbox[1:])) for bbox in bboxes],
+            bboxes=[coco2yolo(yolo2coco(bbox[1:])) for bbox in bboxes],
             class_labels=[bbox[0] for bbox in bboxes]
         )
 
@@ -393,13 +386,13 @@ if __name__ == '__main__':
 
     background_compositor_data_n = {
         0: 40000,
-        1: 4000,
+        1: 2000,
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 30,
-        1: 15,
+        0: 20,
+        1: 10,
         2: 1
     }[is_train_valid_test]
 
