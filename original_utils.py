@@ -67,10 +67,10 @@ class BackgroundCompositor:
         background_images,
         iof_threshold=0.4, # intersection over front_area
         iob_threshold=0.4, # intersection over back_area
-        min_size_of_bird=8,
+        min_size_of_bird=12,
         max_size_of_bird=256,
-        scale_factor_statistics=[(0.25, 0.1), (0.6, 0.2), (1, 0.3)],
-        scale_factor_weights=[0.2, 0.3, 0.5]
+        scale_factor_statistics=[(0.3, 0.1), (0.7, 0.2), (1.2, 0.3)],
+        scale_factor_weights=[0.3, 0.3, 0.4]
     ):
     
         self.img_H, self.img_W = 256, 256
@@ -405,8 +405,8 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 50000,
-        1: 3000,
+        0: 30000,
+        1: 2000,
         2: 0
     }[is_train_valid_test]
 
