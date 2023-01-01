@@ -65,11 +65,12 @@ class BackgroundCompositor:
         mask_images,
         bboxes_list,
         background_images,
-        ioa_threshold: float,
-        min_size_of_bird=12,
+        iof_threshold=0.4, # intersection over front_area
+        iob_threshold=0.4, # intersection over back_area
+        min_size_of_bird=8,
         max_size_of_bird=256,
-        scale_factor_statistics=[(0.3, 0.1), (0.7, 0.2), (1, 0.3)],
-        scale_factor_weights=[0.2, 0.2, 0.6]
+        scale_factor_statistics=[(0.25, 0.1), (0.6, 0.2), (1, 0.3)],
+        scale_factor_weights=[0.2, 0.3, 0.5]
     ):
     
         self.img_H, self.img_W = 256, 256
@@ -79,7 +80,8 @@ class BackgroundCompositor:
         self.bboxes_list = bboxes_list
         self.background_images = background_images
 
-        self.ioa_threshold = ioa_threshold
+        self.iof_threshold = iof_threshold
+        self.iob_threshold = iob_threshold
 
         self.min_size_of_bird = min_size_of_bird
         self.max_size_of_bird = max_size_of_bird
@@ -94,9 +96,8 @@ class BackgroundCompositor:
         self.crop_bird_and_mask_images()
 
         self.transformation = A.Compose([
-                A.VerticalFlip(p=0.5),
+                A.VerticalFlip(p=0.2),
                 A.HorizontalFlip(p=0.5),
-                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
                 A.AdvancedBlur(p=0.3)
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
@@ -209,9 +210,9 @@ class BackgroundCompositor:
 
     def do_augmentation(
         self,
-        birds_n=[0, 1, 2, 3, 4, 5, 6],
-        birds_n_p=[0.01, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5],
-        dataset_n=50000
+        birds_n=[0, 1, 2, 3],
+        birds_n_p=[0.1, 0.4, 0.3, 0.2],
+        dataset_n=40000
     ):
 
         augmentation_bird_images = []
@@ -225,8 +226,9 @@ class BackgroundCompositor:
             bboxes = []
 
             pasted_img = random_background.clone()
+            id_img = torch.zeros((1, pasted_img.size(1), pasted_img.size(2))).fill_(-1) # iof, iob 를 계산하기 위한 변수.
 
-            for _ in range(number_of_birds):
+            for new_imgid in range(number_of_birds):
                 [random_idx] = choices(list(range(len(self.croped_bird_images))), k=1, weights=self.birds_p)
 
                 bird_image = self.croped_bird_images[random_idx]
@@ -242,22 +244,34 @@ class BackgroundCompositor:
                 random_position = self.get_random_position(bird_image, pasted_img)
 
                 its_ok = True
-                
-                for bbox in bboxes:
-                    new_xmin, new_ymin, new_xmax, new_ymax = yolo2coco(random_position)
+
+                new_xmin, new_ymin, new_xmax, new_ymax = yolo2coco(random_position)
+                _, _, new_w, new_h = random_position
+                new_w, new_h = new_w * 256, new_h * 256
+
+                iof = (torch.sum(id_img[:, new_ymin:new_ymax, new_xmin:new_xmax] != -1) / (new_w * new_h)).item()
+
+                if iof > self.iof_threshold:
+                    its_ok = False
+
+                for imgid, bbox in enumerate(bboxes):
                     xmin, ymin, xmax, ymax = yolo2coco(bbox[1:])
 
-                    intersection = (min(xmax, new_xmax) - max(xmin, new_xmin)) * (min(ymax, new_ymax) - max(ymin, new_ymin))
-                    area = (xmax - xmin) * (ymax - ymin)
+                    intersection_area = (min(xmax, new_xmax) - max(xmin, new_xmin)) * (min(ymax, new_ymax) - max(ymin, new_ymin))
+                    if intersection_area < 0: intersection_area = 0
 
-                    ioa = intersection / area
-                    if ioa >= self.ioa_threshold:
+                    back_area = new_w * new_h
+                    intersection_area = torch.sum(id_img[:, ymin:ymax, xmin:xmax] != imgid) + intersection_area
+                    iob = (intersection_area / back_area).item()
+
+                    if iob > self.iob_threshold:
                         its_ok = False
                         break
 
                 if its_ok:
                     xmin, ymin, xmax, ymax = yolo2coco(random_position)
 
+                    id_img[:, ymin:ymax, xmin:xmax] = new_imgid
                     pasted_img[:, ymin:ymax, xmin:xmax] = (bird_image * torch.sqrt(mask_image)) + (pasted_img[:, ymin:ymax, xmin:xmax] * (1 - torch.sqrt(mask_image)))
 
                     bboxes.append([class_, *random_position])
@@ -281,7 +295,6 @@ class Transforms:
         self.albumentation_transform = A.Compose([
                 A.CropAndPad(percent=(-0.2,0.4), p=1),
                 A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.5),
                 A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
                 A.AdvancedBlur(p=0.3),
                 A.RandomFog(p=0.3)
@@ -351,7 +364,6 @@ class AugmentationClass:
             bird_images=bird_images,
             mask_images=mask_images,
             bboxes_list=bboxes_list,
-            ioa_threshold=0.5,
             background_images=background_images
         )
         self.custom_transform = Transforms(bird_images=bird_images, bboxes_list=bboxes_list)
@@ -361,12 +373,13 @@ class AugmentationClass:
         self,
         images_dir,
         labels_dir,
-        background_compositor_data_n=50000,
+        background_compositor_data_n=40000,
         augmentation_n=10
     ):
 
         background_composed_bird_images, background_composed_bboxes_list = self.background_compositor.do_augmentation(
-            dataset_n=background_compositor_data_n, birds_n=list(range(8)), birds_n_p=[1/8] * 8
+            dataset_n=background_compositor_data_n,
+            birds_n=[0, 1, 2, 3], birds_n_p=[0.1, 0.4, 0.3, 0.2]
         )
         augmentation_bird_images, augmentation_bboxes_list = self.custom_transform.do_augmentation(augmentation_n=augmentation_n)
 
@@ -392,8 +405,8 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 40000,
-        1: 2000,
+        0: 50000,
+        1: 3000,
         2: 0
     }[is_train_valid_test]
 
