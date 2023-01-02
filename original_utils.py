@@ -257,11 +257,15 @@ class BackgroundCompositor:
                 for imgid, bbox in enumerate(bboxes):
                     xmin, ymin, xmax, ymax = yolo2coco(bbox[1:])
 
-                    intersection_area = (min(xmax, new_xmax) - max(xmin, new_xmin)) * (min(ymax, new_ymax) - max(ymin, new_ymin))
-                    if intersection_area < 0: intersection_area = 0
+                    intersection_xmin = max(xmin, new_xmin)
+                    intersection_xmax = min(xmax, new_xmax)
+                    intersection_ymin = max(ymin, new_ymin)
+                    intersection_ymax = min(ymax, new_ymax)
 
-                    back_area = new_w * new_h
-                    intersection_area = torch.sum(id_img[:, ymin:ymax, xmin:xmax] != imgid) + intersection_area
+                    back_area = (bbox[3] * 256) * (bbox[4] * 256)
+                    intersection_area = (
+                        torch.sum(id_img[:, ymin:ymax, xmin:xmax] != imgid) + torch.sum(id_img[:, intersection_ymin:intersection_ymax, intersection_xmin:intersection_xmax] == imgid)
+                    )
                     iob = (intersection_area / back_area).item()
 
                     if iob > self.iob_threshold:
@@ -333,7 +337,7 @@ class Transforms:
         augmentation_bird_images = []
         augmentation_bboxes_list = []
 
-        print("simple data sugmentation")
+        print("simple data augmentation")
         if augmentation_n > 0:
             for bird_img, bboxes in tqdm(zip(self.bird_images, self.bboxes_list)):
                 for _ in range(augmentation_n-1):
@@ -355,7 +359,13 @@ class AugmentationClass:
         bird_images,
         mask_images,
         bboxes_list,
-        background_images
+        background_images,
+        iof_threshold=0.4,
+        iob_threshold=0.4,
+        min_size_of_bird=12,
+        max_size_of_bird=256,
+        scale_factor_statistics=[(0.3, 0.1), (0.7, 0.2), (1.2, 0.3)],
+        scale_factor_weights=[0.3, 0.3, 0.4]
     ):
         self.bird_images = bird_images
         self.mask_images = mask_images
@@ -364,7 +374,13 @@ class AugmentationClass:
             bird_images=bird_images,
             mask_images=mask_images,
             bboxes_list=bboxes_list,
-            background_images=background_images
+            background_images=background_images,
+            iof_threshold=iof_threshold,
+            iob_threshold=iob_threshold,
+            min_size_of_bird=min_size_of_bird,
+            max_size_of_bird=max_size_of_bird,
+            scale_factor_statistics=scale_factor_statistics,
+            scale_factor_weights=scale_factor_weights
         )
         self.custom_transform = Transforms(bird_images=bird_images, bboxes_list=bboxes_list)
 
@@ -374,12 +390,15 @@ class AugmentationClass:
         images_dir,
         labels_dir,
         background_compositor_data_n=40000,
-        augmentation_n=10
+        birds_n=[0, 1, 2, 3],
+        birds_n_p=[0.1, 0.4, 0.3, 0.2],
+        augmentation_n=10,
+        start_number=0
     ):
 
         background_composed_bird_images, background_composed_bboxes_list = self.background_compositor.do_augmentation(
             dataset_n=background_compositor_data_n,
-            birds_n=[0, 1, 2, 3], birds_n_p=[0.1, 0.4, 0.3, 0.2]
+            birds_n=birds_n, birds_n_p=birds_n_p
         )
         augmentation_bird_images, augmentation_bboxes_list = self.custom_transform.do_augmentation(augmentation_n=augmentation_n)
 
@@ -387,16 +406,96 @@ class AugmentationClass:
             zip(background_composed_bird_images + augmentation_bird_images, background_composed_bboxes_list + augmentation_bboxes_list)
         ):
             img = transforms.ToPILImage()(bird_image)
-            img.save(os.path.join(images_dir, f"{i}.jpg"))
+            img.save(os.path.join(images_dir, f"{i+start_number}.jpg"))
 
-            with open(os.path.join(labels_dir, f"{i}.txt"), "w") as f:
+            with open(os.path.join(labels_dir, f"{i+start_number}.txt"), "w") as f:
                 f.write("\n".join([f"{int(c)} {x} {y} {w} {h}" for (c, x, y, w, h) in bboxes]) + "\n")
 
+
+def do_train_valid_augmentation(
+    bird_images,
+    mask_images,
+    bboxes_list,
+    background_images,
+    images_dir,
+    labels_dir,
+    background_compositor_data_n=[10000, 10000, 10000],
+    augmentation_n=10,
+):
+
+    augmentation_class = AugmentationClass(
+        bird_images,
+        mask_images,
+        bboxes_list,
+        background_images,
+        iof_threshold=0.05,
+        iob_threshold=0.05,
+        min_size_of_bird=10,
+        max_size_of_bird=40,
+        scale_factor_statistics=[(0.3, 0.1)],
+        scale_factor_weights=[1]
+    )
+
+    augmentation_class.do_augmentation(
+        images_dir=images_dir,
+        labels_dir=labels_dir,
+        background_compositor_data_n=background_compositor_data_n[0],
+        augmentation_n=0,
+        birds_n=[0, 1, 2, 3, 4, 5],
+        birds_n_p=[0.05, 0.19, 0.19, 0.19, 0.19, 0.19],
+        start_number=0
+    )
+
+    augmentation_class = AugmentationClass(
+        bird_images,
+        mask_images,
+        bboxes_list,
+        background_images,
+        iof_threshold=0.3,
+        iob_threshold=0.3,
+        min_size_of_bird=40,
+        max_size_of_bird=130,
+        scale_factor_statistics=[(0.7, 0.2)],
+        scale_factor_weights=[1]
+    )
+
+    augmentation_class.do_augmentation(
+        images_dir=images_dir,
+        labels_dir=labels_dir,
+        background_compositor_data_n=background_compositor_data_n[1],
+        augmentation_n=0,
+        birds_n=[0, 1, 2],
+        birds_n_p=[0.05, 0.475, 0.475],
+        start_number=background_compositor_data_n[0]
+    )
+
+    augmentation_class = AugmentationClass(
+        bird_images,
+        mask_images,
+        bboxes_list,
+        background_images,
+        iof_threshold=0.3,
+        iob_threshold=0.3,
+        min_size_of_bird=130,
+        max_size_of_bird=256,
+        scale_factor_statistics=[(1.2, 0.3)],
+        scale_factor_weights=[1]
+    )
+
+    augmentation_class.do_augmentation(
+        images_dir=images_dir,
+        labels_dir=labels_dir,
+        background_compositor_data_n=background_compositor_data_n[2],
+        augmentation_n=augmentation_n,
+        birds_n=[0, 1],
+        birds_n_p=[0.05, 0.95],
+        start_number=sum(background_compositor_data_n[:2])
+    )
 
 
 if __name__ == '__main__':
 
-    is_train_valid_test = 0 # 0: train, 1: valid, 2: test
+    is_train_valid_test = 1 # 0: train, 1: valid, 2: test
 
     dataset_mode = {
         0: "train",
@@ -405,8 +504,8 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: 30000,
-        1: 2000,
+        0: [10000, 10000, 10000],
+        1: [1000, 1000, 1000],
         2: 0
     }[is_train_valid_test]
 
@@ -467,9 +566,11 @@ if __name__ == '__main__':
                 (transforms.ToTensor()(Image.open(path).convert("RGB").resize((256, 256)))).type(torch.float16)
             )
 
-        augmentation_class = AugmentationClass(bird_images, mask_images, bboxes_list, background_images)
-
-        augmentation_class.do_augmentation(
+        do_train_valid_augmentation(
+            bird_images=bird_images,
+            mask_images=mask_images,
+            bboxes_list=bboxes_list,
+            background_images=background_images,
             images_dir=images_dir,
             labels_dir=labels_dir,
             background_compositor_data_n=background_compositor_data_n,
