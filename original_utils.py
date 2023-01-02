@@ -495,7 +495,7 @@ def do_train_valid_augmentation(
 
 if __name__ == '__main__':
 
-    is_train_valid_test = 1 # 0: train, 1: valid, 2: test
+    is_train_valid_test = 0 # 0: train, 1: valid, 2: test
 
     dataset_mode = {
         0: "train",
@@ -510,8 +510,8 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 20,
-        1: 10,
+        0: 25,
+        1: 15,
         2: 1
     }[is_train_valid_test]
 
