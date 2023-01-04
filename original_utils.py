@@ -65,8 +65,8 @@ class BackgroundCompositor:
         mask_images,
         bboxes_list,
         background_images,
-        iof_threshold=0.4, # intersection over front_area
-        iob_threshold=0.4, # intersection over back_area
+        iof_threshold=0.3, # intersection over front_area
+        iob_threshold=0.3, # intersection over back_area
         min_size_of_bird=12,
         max_size_of_bird=256,
         scale_factor_statistics=[(0.3, 0.1), (0.7, 0.2), (1.2, 0.3)],
@@ -101,6 +101,13 @@ class BackgroundCompositor:
                 A.AdvancedBlur(p=0.3)
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
+        self.background_transformation = A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+            A.AdvancedBlur(p=0.3),
+            A.RandomFog(p=0.3),
+        ])
+
     
     def crop_bird_and_mask_images(
         self
@@ -130,6 +137,19 @@ class BackgroundCompositor:
         for i in range(len(self.croped_bird_images)):
             c = self.croped_bird_class_list[i]
             self.birds_p.append(class_p[c])
+
+
+    def do_transform_background(
+        self,
+        background_img
+    ):
+        transform_img = self.background_transformation(
+            image=background_img.permute(1, 2, 0).type(torch.float32).numpy()
+        )["image"]
+
+        transform_img = torch.from_numpy(transform_img).permute(2, 0, 1)
+
+        return transform_img
 
 
     def do_transform_img(
@@ -221,6 +241,8 @@ class BackgroundCompositor:
         print("background composition")
         for _ in tqdm(range(dataset_n)):
             random_background = self.background_images[randint(0, len(self.background_images))-1]
+            random_background = self.do_transform_background(random_background)
+
             [number_of_birds] = choices(birds_n, weights=birds_n_p, k=1)
 
             bboxes = []
