@@ -147,7 +147,7 @@ class BackgroundCompositor:
             image=background_img.permute(1, 2, 0).type(torch.float32).numpy()
         )["image"]
 
-        transform_img = torch.from_numpy(transform_img).permute(2, 0, 1)
+        transform_img = torch.from_numpy(transform_img).permute(2, 0, 1).type(torch.float16)
 
         return transform_img
 
@@ -464,7 +464,7 @@ def do_train_valid_augmentation(
         background_compositor_data_n=background_compositor_data_n[0],
         augmentation_n=0,
         birds_n=[0, 1, 2, 3, 4, 5],
-        birds_n_p=[0.05, 0.19, 0.19, 0.19, 0.19, 0.19],
+        birds_n_p=[0.1, 0.18, 0.18, 0.18, 0.18, 0.18],
         start_number=0
     )
 
@@ -487,7 +487,7 @@ def do_train_valid_augmentation(
         background_compositor_data_n=background_compositor_data_n[1],
         augmentation_n=0,
         birds_n=[0, 1, 2],
-        birds_n_p=[0.05, 0.475, 0.475],
+        birds_n_p=[0.1, 0.45, 0.45],
         start_number=background_compositor_data_n[0]
     )
 
@@ -510,7 +510,7 @@ def do_train_valid_augmentation(
         background_compositor_data_n=background_compositor_data_n[2],
         augmentation_n=augmentation_n,
         birds_n=[0, 1],
-        birds_n_p=[0.05, 0.95],
+        birds_n_p=[0.1, 0.9],
         start_number=sum(background_compositor_data_n[:2])
     )
 
@@ -526,13 +526,13 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: [10000, 10000, 10000],
+        0: [15000, 15000, 15000],
         1: [1000, 1000, 1000],
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
-        0: 25,
+        0: 30,
         1: 15,
         2: 1
     }[is_train_valid_test]
