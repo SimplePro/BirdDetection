@@ -96,9 +96,10 @@ class BackgroundCompositor:
         self.crop_bird_and_mask_images()
 
         self.transformation = A.Compose([
-                A.VerticalFlip(p=0.2),
+                A.VerticalFlip(p=0.3),
                 A.HorizontalFlip(p=0.5),
-                A.AdvancedBlur(p=0.3)
+                A.AdvancedBlur(p=0.3),
+                A.RandomFog(p=0.3)
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
         self.background_transformation = A.Compose([
@@ -509,8 +510,8 @@ def do_train_valid_augmentation(
         labels_dir=labels_dir,
         background_compositor_data_n=background_compositor_data_n[2],
         augmentation_n=augmentation_n,
-        birds_n=[0, 1],
-        birds_n_p=[0.1, 0.9],
+        birds_n=[0, 1, 2],
+        birds_n_p=[0.1, 0.6, 0.3],
         start_number=sum(background_compositor_data_n[:2])
     )
 
@@ -526,14 +527,14 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: [15000, 15000, 15000],
-        1: [1000, 1000, 1000],
+        0: [20000, 15000, 15000],
+        1: [4000, 3000, 3000],
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
         0: 30,
-        1: 15,
+        1: 7,
         2: 1
     }[is_train_valid_test]
 
