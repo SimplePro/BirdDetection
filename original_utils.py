@@ -96,10 +96,10 @@ class BackgroundCompositor:
         self.crop_bird_and_mask_images()
 
         self.transformation = A.Compose([
-                A.VerticalFlip(p=0.3),
+                # A.VerticalFlip(p=0.3),
                 A.HorizontalFlip(p=0.5),
                 A.AdvancedBlur(p=0.3),
-                A.RandomFog(p=0.3)
+                # A.RandomFog(p=0.3)
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
         self.background_transformation = A.Compose([
@@ -527,14 +527,14 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: [20000, 15000, 15000],
-        1: [4000, 3000, 3000],
+        0: [15000, 15000, 15000],
+        1: [3000, 3000, 3000],
         2: 0
     }[is_train_valid_test]
 
     augmentation_n = {
         0: 30,
-        1: 7,
+        1: 15,
         2: 1
     }[is_train_valid_test]
 
@@ -545,6 +545,9 @@ if __name__ == '__main__':
 
     with open(os.path.join(root_dir, "datasamples", "split_indexes.pickle"), "rb") as f:
         data_split_indexes = pickle.load(f)
+
+    with open(os.path.join(root_dir, "Landscape", "landscape_split_indexes.pickle"), "rb") as f:
+        landscape_split_indexes = pickle.load(f)
 
     bird_images = []
     mask_images = []
@@ -584,10 +587,11 @@ if __name__ == '__main__':
         background_images = []
 
         print("background images")
-        for path in tqdm(glob(os.path.join(root_dir, "Landscape", "*.jpg"))):
-            background_images.append(
-                (transforms.ToTensor()(Image.open(path).convert("RGB").resize((256, 256)))).type(torch.float16)
-            )
+        for i, path in enumerate(tqdm(glob(os.path.join(root_dir, "Landscape", "*.jpg")))):
+            if landscape_split_indexes[i] == is_train_valid_test:
+                background_images.append(
+                    (transforms.ToTensor()(Image.open(path).convert("RGB").resize((256, 256)))).type(torch.float16)
+                )
 
         do_train_valid_augmentation(
             bird_images=bird_images,
