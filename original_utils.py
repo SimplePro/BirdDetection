@@ -19,6 +19,7 @@ from glob import glob
 import pickle
 
 
+# tensor img와 yolo bboxes를 입력받으면 bounding box를 그려서 반환하는 함수.
 def draw_bbox(img, bboxes):
     image = transforms.ToPILImage()(img)
     _, H, W = img.shape
@@ -36,7 +37,7 @@ def draw_bbox(img, bboxes):
     return image
 
 
-
+# yolo bbox -> coco bbox
 def yolo2coco(bbox, img_size=256):
         x, y, w, h = bbox
 
@@ -48,6 +49,7 @@ def yolo2coco(bbox, img_size=256):
         ]
 
     
+# coco bbox -> yolo bbox
 def coco2yolo(bbox, img_size=256):
     xmin, ymin, xmax, ymax = bbox
     xmin, ymin, xmax, ymax = xmin / img_size, ymin / img_size, xmax / img_size, ymax / img_size
@@ -57,20 +59,21 @@ def coco2yolo(bbox, img_size=256):
     ]
 
 
+# 배경 합성 클래스
 class BackgroundCompositor:
 
     def __init__(
         self,
-        bird_images,
-        mask_images,
-        bboxes_list,
-        background_images,
+        bird_images, # 조류 이미지 리스트
+        mask_images, # 마스크 이미지 리스트
+        bboxes_list, # bounding_boxes 리스트
+        background_images, # 배경이미지 리스트
         iof_threshold=0.3, # intersection over front_area
         iob_threshold=0.3, # intersection over back_area
-        min_size_of_bird=12,
-        max_size_of_bird=256,
-        scale_factor_statistics=[(0.3, 0.1), (0.7, 0.2), (1.2, 0.3)],
-        scale_factor_weights=[0.3, 0.3, 0.4]
+        min_size_of_bird=12, # 조류의 가장 작은 사이즈
+        max_size_of_bird=256, # 조류의 가장 큰 사이즈
+        scale_factor_statistics=[(0.3, 0.1), (0.7, 0.2), (1.2, 0.3)], # scale_factor의 mean, std 리스트
+        scale_factor_weights=[0.3, 0.3, 0.4] # mean, std 리스트의 확률
     ):
     
         self.img_H, self.img_W = 256, 256
@@ -95,6 +98,7 @@ class BackgroundCompositor:
 
         self.crop_bird_and_mask_images()
 
+        # 조류 이미지를 변환할 때 사용할 transformation
         self.transformation = A.Compose([
                 # A.VerticalFlip(p=0.3),
                 A.HorizontalFlip(p=0.5),
@@ -102,6 +106,7 @@ class BackgroundCompositor:
                 # A.RandomFog(p=0.3)
             ], bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
 
+        # 배경 이미지를 변환할 때 사용할 transformation
         self.background_transformation = A.Compose([
             A.HorizontalFlip(p=0.5),
             A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
@@ -110,6 +115,7 @@ class BackgroundCompositor:
         ])
 
     
+    # 이미지 내에서 조류만을 검출해내는 함수
     def crop_bird_and_mask_images(
         self
     ):
@@ -140,6 +146,7 @@ class BackgroundCompositor:
             self.birds_p.append(class_p[c])
 
 
+    # 배경 이미지를 변환하는 함수.
     def do_transform_background(
         self,
         background_img
@@ -153,6 +160,7 @@ class BackgroundCompositor:
         return transform_img
 
 
+    # 조류 이미지를 변환하는 함수
     def do_transform_img(
         self,
         bird_img,
@@ -188,6 +196,7 @@ class BackgroundCompositor:
         return result
         
 
+    # 랜덤 리사이즈 함수
     def random_resize(
         self,
         bird_img,
@@ -210,6 +219,7 @@ class BackgroundCompositor:
         return resized_bird_img, resized_mask_img
 
 
+    # 랜덤 포지션 함수
     def get_random_position(
         self,
         bird_img,
@@ -229,6 +239,7 @@ class BackgroundCompositor:
         return (x, y, w, h)
 
 
+    # 배경 합성을 실행하는 함수
     def do_augmentation(
         self,
         birds_n=[0, 1, 2, 3],
@@ -309,16 +320,16 @@ class BackgroundCompositor:
         return augmentation_bird_images, augmentation_bboxes_list
 
 
-
+# 기본적인 증강 클래스
 class Transforms:
 
     def __init__(
         self,
-        bird_images,
-        bboxes_list,
+        bird_images, # 조류 이미지 리스트
+        bboxes_list, # bounding_boxes 리스트
     ):
 
-
+        # 변환에 사용할 transformation
         self.albumentation_transform = A.Compose([
                 A.CropAndPad(percent=(-0.2,0.4), p=1),
                 A.HorizontalFlip(p=0.5),
@@ -330,7 +341,7 @@ class Transforms:
         self.bird_images = bird_images
         self.bboxes_list = bboxes_list
 
-    
+    # 이미지 한개를 변환하는 함수
     def transform_function(
         self,
         img,
@@ -352,6 +363,7 @@ class Transforms:
         )
 
 
+    # 증강을 실행하는 함수
     def do_augmentation(
         self,
         augmentation_n
@@ -375,6 +387,7 @@ class Transforms:
         return augmentation_bird_images, augmentation_bboxes_list
 
 
+# 배경 합성과 기본적인 증강 클래스를 합쳐놓은 클래스
 class AugmentationClass:
 
     def __init__(
@@ -435,6 +448,7 @@ class AugmentationClass:
                 f.write("\n".join([f"{int(c)} {x} {y} {w} {h}" for (c, x, y, w, h) in bboxes]) + "\n")
 
 
+# 훈련데이터와 검증 데이터를 생성하는 함수
 def do_train_valid_augmentation(
     bird_images,
     mask_images,
@@ -446,6 +460,7 @@ def do_train_valid_augmentation(
     augmentation_n=10,
 ):
 
+    # 작은 크기의 조류 이미지들 생성.
     augmentation_class = AugmentationClass(
         bird_images,
         mask_images,
@@ -469,6 +484,7 @@ def do_train_valid_augmentation(
         start_number=0
     )
 
+    # 중간 크기의 조류 이미지들 생성
     augmentation_class = AugmentationClass(
         bird_images,
         mask_images,
@@ -492,6 +508,7 @@ def do_train_valid_augmentation(
         start_number=background_compositor_data_n[0]
     )
 
+    # 큰 크기의 조류 이미지들 생성.
     augmentation_class = AugmentationClass(
         bird_images,
         mask_images,
@@ -527,8 +544,8 @@ if __name__ == '__main__':
     }[is_train_valid_test]
 
     background_compositor_data_n = {
-        0: [15000, 15000, 15000],
-        1: [3000, 3000, 3000],
+        0: [15000, 15000, 15000], # [작은 크기의 조류, 중간 크기의 조류, 큰 크기의 조류]
+        1: [3000, 3000, 3000], 
         2: 0
     }[is_train_valid_test]
 
